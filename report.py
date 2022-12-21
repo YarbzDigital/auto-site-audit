@@ -22,17 +22,18 @@ tmcol_audits = tmconn.audits
 
 @app.route('/api/scrape', methods=[ 'POST' ])
 def add_scrape_url():
-    if 'url' not in request.json:
-        return Response("Missing 'url' param", status=401)
+    if 'urls' not in request.json:
+        return Response("Missing 'urls' array param", status=401)
     
-    url = request.json['url']
-    q_urls.put(url)
-    print(f'/api/scrape queued URL {url}')
+    urls = request.json['urls']
+
+    for url in urls:
+        q_urls.put(url)
+        print(f'Added URL {url} to queue via API')
 
     return Response("", status=200)
 
 def main():
-    print('Starting...')
 
     threading.Thread(target=worker_scrape_urls, daemon=False).start()
     threading.Thread(target=worker_audit, daemon=False).start()
@@ -66,6 +67,11 @@ def worker_scrape_urls():
         url = q_urls.get()
 
         print(f'Scraping ${url}... ({q_urls.unfinished_tasks} left in scrape queue)')
+
+        # If no protocol given, assume http (server will likely upgrade us to https automatically)
+        # but maybe not
+        if not url.startswith('http'):
+            url = f'http://{url}'
 
         resp = requests.get(url, headers={
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:108.0) Gecko/20100101 Firefox/108.0'
@@ -107,4 +113,9 @@ def worker_scrape_urls():
         q_urls.task_done()
 
 
-main()
+# main()
+
+if __name__ == '__main__':
+    print('Starting app...')
+    app.run(debug=True, host='0.0.0.0', port=1338)
+    main()

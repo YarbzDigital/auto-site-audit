@@ -10,7 +10,7 @@
 
 ## Running
 
-1.  Run `python report.py`
+1. In project root, run `flask --app report run`
 2. Post HTTP request to `http://127.0.0.1:5000/api/scrape` with body:
 
 ```

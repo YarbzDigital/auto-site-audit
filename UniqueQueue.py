@@ -4,6 +4,7 @@ class UniqueQueue(Queue):
 
     def _init(self, maxsize):
         self.all_items = set()
+
         Queue._init(self, maxsize)
 
     def put(self, item, block=True, timeout=None):
