@@ -141,7 +141,7 @@ def worker_audit(worker_id):
 
             # Run lighthouse node command (must be installed globally on OS)
             proc = subprocess.run(
-                f'lighthouse {audit_url} --output=json --output-path="stdout" --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run" --only-categories=performance --max-wait-for-load=60000 --quiet',
+                f'lighthouse {audit_url} --output=json --output-path="stdout" --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run" --only-categories=performance,seo --max-wait-for-load=60000 --quiet',
                 shell=True,
                 text=True,
                 stdout=subprocess.PIPE,
