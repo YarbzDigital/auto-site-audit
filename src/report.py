@@ -6,7 +6,7 @@ import threading
 from bs4 import BeautifulSoup
 from TinyMongoClient import TinyMongoClient
 from UniqueQueue import UniqueQueue
-from flask import Flask, Response, request, jsonify, json
+from flask import Flask, Response, request, json, make_response, jsonify
 from tinymongo import tinymongo as tm
 import json
 import time
@@ -16,7 +16,9 @@ from helpers import strip_to_hostname
 import uuid
 from multiprocessing import Pool, Process
 from colorama import init, Fore, Back, Style
-
+import gzip
+import subprocess
+import logging
 
 config = Config()
 
@@ -24,6 +26,8 @@ q_crawl = UniqueQueue()
 q_audit = UniqueQueue()
 
 app = Flask(__name__)
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
+
 db_client = DbClient().connect()
 
 PRINT_SCRAPE = Style.NORMAL + Fore.LIGHTBLUE_EX
@@ -54,7 +58,25 @@ def api_get_status():
     return Response(json.dumps({
         'queue_audit_item_count': q_audit.unfinished_tasks,
         'queue_crawl_item_count': q_crawl.unfinished_tasks
-    }), status=200)
+    }), status=200, mimetype='application/json')
+
+@app.route('/api/hosts', methods=['GET'])
+def api_get_hosts():
+    
+    hosts = []
+
+    res = db_client.get_urls_by_host()
+    for host in res:
+        hosts.append(host)
+
+    return jsonify(hosts)
+    # content = gzip.compress(json_d.encode('utf8'), 9)
+    # response = make_response(content)
+    # response.headers['Content-Length'] = len(content)
+    # response.headers['Content-Encoding'] = 'gzip'
+    # response.headers['Content-Type'] = 'application/json; charset=utf-8'
+
+    # return response
 
 
 def main():
@@ -118,15 +140,26 @@ def worker_audit(worker_id):
         try:
 
             # Run lighthouse node command (must be installed globally on OS)
-            outpath = f"./audit/{urllib.parse.quote_plus(audit_url)}.json"
-            os.system(
-                f'lighthouse {audit_url} --output=json --output-path="{outpath}" --chrome-flags="--headless" --only-categories=performance --max-wait-for-load=20000 --quiet')
+            proc = subprocess.run(
+                f'lighthouse {audit_url} --output=json --output-path="stdout" --chrome-flags="--headless" --only-categories=performance --max-wait-for-load=20000 --quiet',
+                shell=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL
+            )
+
+            print('DONE!')
+            print(f'output len {len(proc.stdout)}')
+
+            # Handle process errors
+            if proc.returncode != 0:
+                raise Exception(f'Lighthouse subprocess exited with error code {proc.returncode}')
 
             toc = time.perf_counter()
             elapsed_timespan = toc - tic
 
-            outfile = open(outpath)
-            outfile_json = json.load(outfile)
+            outfile_json = json.loads(proc.stdout)
+
             # Remove unnecessary bits
             del outfile_json['audits']['screenshot-thumbnails']
             del outfile_json['audits']['full-page-screenshot']
@@ -147,7 +180,9 @@ def worker_audit(worker_id):
                 f'{PRINT_AUDIT_SUCCESS}{worker_sig} Finished auditing {audit_url} in {elapsed_timespan:0.2f}s; {q_audit.unfinished_tasks} left in AUDIT queue')
         except Exception as e:
             msg = getattr(e, 'message', str(e))
-            warn(PRINT_ERROR + f'An error occured while auditing {audit_url}: {msg}')
+            logging.error(PRINT_ERROR + f'An error occured while auditing {audit_url}: {msg}')
+
+            
 
 
 def worker_scrape_urls():
