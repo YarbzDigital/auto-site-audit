@@ -141,19 +141,16 @@ def worker_audit(worker_id):
 
             # Run lighthouse node command (must be installed globally on OS)
             proc = subprocess.run(
-                f'lighthouse {audit_url} --output=json --output-path="stdout" --chrome-flags="--headless" --only-categories=performance --max-wait-for-load=20000 --quiet',
+                f'lighthouse {audit_url} --output=json --output-path="stdout" --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run" --only-categories=performance --max-wait-for-load=60000 --quiet',
                 shell=True,
                 text=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.PIPE
             )
-
-            print('DONE!')
-            print(f'output len {len(proc.stdout)}')
 
             # Handle process errors
             if proc.returncode != 0:
-                raise Exception(f'Lighthouse subprocess exited with error code {proc.returncode}')
+                raise Exception(f'Lighthouse subprocess exited with error code {proc.returncode}: {proc.stderr}')
 
             toc = time.perf_counter()
             elapsed_timespan = toc - tic
