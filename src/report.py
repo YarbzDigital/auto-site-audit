@@ -70,13 +70,6 @@ def api_get_hosts():
         hosts.append(host)
 
     return jsonify(hosts)
-    # content = gzip.compress(json_d.encode('utf8'), 9)
-    # response = make_response(content)
-    # response.headers['Content-Length'] = len(content)
-    # response.headers['Content-Encoding'] = 'gzip'
-    # response.headers['Content-Type'] = 'application/json; charset=utf-8'
-
-    # return response
 
 
 def main():
@@ -160,6 +153,7 @@ def worker_audit(worker_id):
             # Remove unnecessary bits
             del outfile_json['audits']['screenshot-thumbnails']
             del outfile_json['audits']['full-page-screenshot']
+            del outfile_json['audits']['final-screenshot']
             del outfile_json['i18n']
 
             record = {
