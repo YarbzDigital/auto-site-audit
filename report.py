@@ -1,3 +1,4 @@
+from logging import warn
 import os
 import urllib.parse
 import requests
@@ -5,7 +6,7 @@ import threading
 from bs4 import BeautifulSoup
 from TinyMongoClient import TinyMongoClient
 from UniqueQueue import UniqueQueue
-from flask import Flask, Response, request
+from flask import Flask, Response, request, jsonify, json
 from tinymongo import tinymongo as tm
 import json
 import time
@@ -14,28 +15,46 @@ from db import DbClient
 from helpers import strip_to_hostname
 import uuid
 from multiprocessing import Pool, Process
+from colorama import init, Fore, Back, Style
 
 
 config = Config()
 
-q_urls = UniqueQueue()
+q_crawl = UniqueQueue()
 q_audit = UniqueQueue()
 
 app = Flask(__name__)
 db_client = DbClient().connect()
 
+PRINT_SCRAPE = Style.NORMAL + Fore.LIGHTBLUE_EX
+PRINT_QUEUE = Style.NORMAL + Fore.MAGENTA
+PRINT_SKIP = Style.NORMAL + Fore.LIGHTBLACK_EX
+PRINT_AUDIT = Style.NORMAL + Fore.BLUE
+PRINT_AUDIT_SUCCESS = Style.NORMAL + Fore.GREEN
+PRINT_ERROR = Style.NORMAL = Fore.RED
+
+init(autoreset=True)
 
 @app.route('/api/scrape', methods=['POST'])
-def add_scrape_url():
+def api_post_scrape_url():
     if 'urls' not in request.json:
         return Response("Missing 'urls' array param", status=401)
 
     urls = request.json['urls']
 
     for url in urls:
-        add_to_scrape_queue(url)
+        if not add_to_scrape_queue(url):
+            print(f'Skipping posted url {url}: already in queue')
 
     return Response("", status=200)
+
+
+@app.route('/api/status', methods=['GET'])
+def api_get_status():
+    return Response(json.dumps({
+        'queue_audit_item_count': q_audit.unfinished_tasks,
+        'queue_crawl_item_count': q_crawl.unfinished_tasks
+    }), status=200)
 
 
 def main():
@@ -56,23 +75,25 @@ def main():
 def add_to_audit_queue(url):
     if q_audit.exists(url) or db_client.url_has_entry(url):
         print(
-            f'Skipping adding {url} to AUDIT queue: already exists in queue or DB')
+            f'{PRINT_SKIP}Skipping adding {url} to AUDIT queue: already exists in queue or DB')
 
         return False
 
     q_audit.put(url)
+    print(f'{PRINT_QUEUE}Added {url} to AUDIT queue')
 
     return True
 
 
 def add_to_scrape_queue(url):
-    if q_urls.exists(url):
+    if q_crawl.exists(url):
         print(
-            f'Skipping adding {url} to SCRAPE queue: already exists in queue')
+            f'{PRINT_SKIP}Skipping adding {url} to SCRAPE queue: already exists in queue')
 
         return False
 
-    q_urls.put(url)
+    q_crawl.put(url)
+    print(f'{PRINT_QUEUE}Added {url} to SCRAPE queue')
 
     return True
 
@@ -88,48 +109,53 @@ def worker_audit(worker_id):
 
         if db_client.url_has_entry(audit_url):
             print(
-                f'{worker_sig} Skipping audit for {audit_url}: audit already exists in DB')
+                f'{PRINT_SKIP}{worker_sig} Skipping audit for {audit_url}: audit already exists in DB')
             continue
 
         print(
-            f'{worker_sig} Auditing {audit_url}...')
+            f'{PRINT_AUDIT}{worker_sig} Auditing {audit_url}...')
 
-        # Run lighthouse node command (must be installed globally on OS)
-        outpath = f"./audit/{urllib.parse.quote_plus(audit_url)}.json"
-        os.system(
-            f'lighthouse {audit_url} --output=json --output-path="{outpath}" --chrome-flags="--headless" --only-categories=performance --max-wait-for-load=20000 --quiet')
+        try:
 
-        toc = time.perf_counter()
-        elapsed_timespan = toc - tic
+            # Run lighthouse node command (must be installed globally on OS)
+            outpath = f"./audit/{urllib.parse.quote_plus(audit_url)}.json"
+            os.system(
+                f'lighthouse {audit_url} --output=json --output-path="{outpath}" --chrome-flags="--headless" --only-categories=performance --max-wait-for-load=20000 --quiet')
 
-        outfile = open(outpath)
-        outfile_json = json.load(outfile)
-        # Remove unnecessary bits
-        del outfile_json['audits']['screenshot-thumbnails']
-        del outfile_json['audits']['full-page-screenshot']
-        del outfile_json['i18n']
+            toc = time.perf_counter()
+            elapsed_timespan = toc - tic
 
-        record = {
-            'url': audit_url,
-            'host': strip_to_hostname(audit_url),
-            'elapsedTimeSeconds': round(elapsed_timespan, 2),
-            'lighthouse': outfile_json
-        }
+            outfile = open(outpath)
+            outfile_json = json.load(outfile)
+            # Remove unnecessary bits
+            del outfile_json['audits']['screenshot-thumbnails']
+            del outfile_json['audits']['full-page-screenshot']
+            del outfile_json['i18n']
 
-        db_client.insert_audit_record(record)
+            record = {
+                'url': audit_url,
+                'host': strip_to_hostname(audit_url),
+                'elapsedTimeSeconds': round(elapsed_timespan, 2),
+                'lighthouse': outfile_json
+            }
 
-        q_audit.task_done()
+            db_client.insert_audit_record(record)
 
-        print(
-            f'{worker_sig} Finished auditing {audit_url} in {elapsed_timespan:0.2f}s; {q_audit.unfinished_tasks} left in AUDIT queue')
+            q_audit.task_done()
+
+            print(
+                f'{PRINT_AUDIT_SUCCESS}{worker_sig} Finished auditing {audit_url} in {elapsed_timespan:0.2f}s; {q_audit.unfinished_tasks} left in AUDIT queue')
+        except Exception as e:
+            msg = getattr(e, 'message', str(e))
+            warn(PRINT_ERROR + f'An error occured while auditing {audit_url}: {msg}')
 
 
 def worker_scrape_urls():
     while True:
-        url = q_urls.get()
+        url = q_crawl.get()
 
         print(
-            f'Scraping {url}... ({q_urls.unfinished_tasks} left in scrape queue)')
+            f'{PRINT_SCRAPE}Scraping {url}... ({q_crawl.unfinished_tasks} left in scrape queue)')
 
         # If no protocol given, assume http (server will likely upgrade us to https automatically)
         # but maybe not
@@ -143,7 +169,6 @@ def worker_scrape_urls():
         if (resp.ok):
 
             host = strip_to_hostname(resp.url)
-            print(f'Identified host for {url} as {host}')
 
             added_to_queue = 0
             # Add homepage URL to audit queue
@@ -160,22 +185,18 @@ def worker_scrape_urls():
 
                     full_url = urllib.parse.urljoin(resp.url, href)
 
-                    if (not q_audit.exists(full_url)):
-                        print(
-                            f'Found {full_url} under {resp.url}; adding to AUDIT queue')
+                    if add_to_audit_queue(full_url):
+                        added_to_queue = added_to_queue + 1
 
-                        if add_to_audit_queue(full_url):
-                            added_to_queue = added_to_queue + 1
-
-            print(
-                f'Finished scraping {url}: {added_to_queue} added to audit queue')
+            # print(
+            #     f'Finished scraping {url}: {added_to_queue} added to audit queue')
 
         else:
 
             print(
-                f'Abandoned scrape for {url}: GET request failed with status code {resp.status_code}')
+                f'{PRINT_SKIP}Abandoned scrape for {url}: GET request failed with status code {resp.status_code}')
 
-        q_urls.task_done()
+        q_crawl.task_done()
 
 
 # main()
