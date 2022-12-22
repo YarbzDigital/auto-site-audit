@@ -8,65 +8,128 @@ from UniqueQueue import UniqueQueue
 from flask import Flask, Response, request
 from tinymongo import tinymongo as tm
 import json
+import time
+from config import Config
+from db import DbClient
+from helpers import strip_to_hostname
+import uuid
+from multiprocessing import Pool, Process
 
-cache_scraped_urls = {}
+
+config = Config()
 
 q_urls = UniqueQueue()
 q_audit = UniqueQueue()
 
 app = Flask(__name__)
+db_client = DbClient().connect()
 
-tmclient = TinyMongoClient('./lsr_db')
-tmconn = tmclient.default
-tmcol_audits = tmconn.audits
 
-@app.route('/api/scrape', methods=[ 'POST' ])
+@app.route('/api/scrape', methods=['POST'])
 def add_scrape_url():
     if 'urls' not in request.json:
         return Response("Missing 'urls' array param", status=401)
-    
+
     urls = request.json['urls']
 
     for url in urls:
-        q_urls.put(url)
-        print(f'Added URL {url} to queue via API')
+        add_to_scrape_queue(url)
 
     return Response("", status=200)
 
+
 def main():
 
-    threading.Thread(target=worker_scrape_urls, daemon=False).start()
-    threading.Thread(target=worker_audit, daemon=False).start()
+    threading.Thread(target=worker_scrape_urls, daemon=True).start()
+
+    for i in range(3):
+        worker_id = i + 1
+        print(f'Starting worker_audit thread #{worker_id}')
+        threading.Thread(target=worker_audit, daemon=True,
+                         args=(worker_id,)).start()
+
+    app.run(debug=True, host='0.0.0.0', port=1338)
 
     return
 
-def strip_to_hostname(url):
-    return urllib.parse.urlparse(url).netloc
 
-def worker_audit():
+def add_to_audit_queue(url):
+    if q_audit.exists(url) or db_client.url_has_entry(url):
+        print(
+            f'Skipping adding {url} to AUDIT queue: already exists in queue or DB')
+
+        return False
+
+    q_audit.put(url)
+
+    return True
+
+
+def add_to_scrape_queue(url):
+    if q_urls.exists(url):
+        print(
+            f'Skipping adding {url} to SCRAPE queue: already exists in queue')
+
+        return False
+
+    q_urls.put(url)
+
+    return True
+
+
+def worker_audit(worker_id):
+
+    worker_sig = f'[Worker #{worker_id}]'
+
     while True:
+        tic = time.perf_counter()
+
         audit_url = q_audit.get()
 
-        print(f'Auditing {audit_url} ({q_audit.unfinished_tasks} left in audit queue)')
+        if db_client.url_has_entry(audit_url):
+            print(
+                f'{worker_sig} Skipping audit for {audit_url}: audit already exists in DB')
+            continue
+
+        print(
+            f'{worker_sig} Auditing {audit_url}...')
 
         # Run lighthouse node command (must be installed globally on OS)
         outpath = f"./audit/{urllib.parse.quote_plus(audit_url)}.json"
-        os.system(f'lighthouse {audit_url} --output=json --output-path="{outpath}" --chrome-flags="--headless" --only-categories=performance --max-wait-for-load=20000')
+        os.system(
+            f'lighthouse {audit_url} --output=json --output-path="{outpath}" --chrome-flags="--headless" --only-categories=performance --max-wait-for-load=20000 --quiet')
 
-        # Add to DB
+        toc = time.perf_counter()
+        elapsed_timespan = toc - tic
+
         outfile = open(outpath)
-        json_content = json.load(outfile)
-        tmcol_audits.insert_one(json_content)
+        outfile_json = json.load(outfile)
+        # Remove unnecessary bits
+        del outfile_json['audits']['screenshot-thumbnails']
+        del outfile_json['audits']['full-page-screenshot']
+        del outfile_json['i18n']
 
-        print(f'Finished auditing {audit_url}')
+        record = {
+            'url': audit_url,
+            'host': strip_to_hostname(audit_url),
+            'elapsedTimeSeconds': round(elapsed_timespan, 2),
+            'lighthouse': outfile_json
+        }
+
+        db_client.insert_audit_record(record)
 
         q_audit.task_done()
-    
+
+        print(
+            f'{worker_sig} Finished auditing {audit_url} in {elapsed_timespan:0.2f}s; {q_audit.unfinished_tasks} left in AUDIT queue')
+
+
 def worker_scrape_urls():
     while True:
         url = q_urls.get()
 
-        print(f'Scraping ${url}... ({q_urls.unfinished_tasks} left in scrape queue)')
+        print(
+            f'Scraping {url}... ({q_urls.unfinished_tasks} left in scrape queue)')
 
         # If no protocol given, assume http (server will likely upgrade us to https automatically)
         # but maybe not
@@ -82,10 +145,11 @@ def worker_scrape_urls():
             host = strip_to_hostname(resp.url)
             print(f'Identified host for {url} as {host}')
 
+            added_to_queue = 0
             # Add homepage URL to audit queue
-            q_audit.put(resp.url)
+            if add_to_audit_queue(resp.url):
+                added_to_queue = added_to_queue + 1
 
-            found_urls = 0
             soup = BeautifulSoup(resp.text, 'html.parser')
 
             for link in soup.find_all('a'):
@@ -98,17 +162,18 @@ def worker_scrape_urls():
 
                     if (not q_audit.exists(full_url)):
                         print(
-                            f'Found {full_url} under {resp.url}; adding to audit queue')
+                            f'Found {full_url} under {resp.url}; adding to AUDIT queue')
 
-                        q_audit.put(full_url)
+                        if add_to_audit_queue(full_url):
+                            added_to_queue = added_to_queue + 1
 
-                        found_urls = found_urls + 1
-            
-            print(f'Finished scraping ${url}: {found_urls} added to audit queue')
+            print(
+                f'Finished scraping {url}: {added_to_queue} added to audit queue')
 
         else:
 
-            print(f'Abandoned scrape for {url}: GET request failed with status code {resp.status_code}')
+            print(
+                f'Abandoned scrape for {url}: GET request failed with status code {resp.status_code}')
 
         q_urls.task_done()
 
@@ -117,5 +182,4 @@ def worker_scrape_urls():
 
 if __name__ == '__main__':
     print('Starting app...')
-    app.run(debug=True, host='0.0.0.0', port=1338)
     main()

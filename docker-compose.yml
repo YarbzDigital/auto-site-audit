@@ -1,6 +1,10 @@
 version: '3.1'
 
 services:
+  node:
+    image: node:18.12
+
+
   mongo:
     image: mongo
     restart: always
@@ -8,7 +12,7 @@ services:
       - 27017:27017
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: 6iQ&7k5DRHA1HQz#
+      MONGO_INITDB_ROOT_PASSWORD: 6iQ&7k5DRHA1HQz!
     networks:
       - asa-default-network
   
@@ -21,7 +25,10 @@ services:
     networks:
       - asa-default-network
     environment:
-      MONGO_CONNECTION_STRING: mongodb://root:6iQ&7k5DRHA1HQz#
+      MONGO_CONNECTION_STRING: mongodb://root:6iQ%267k5DRHA1HQz!@mongo:27017/?authMechanism=DEFAULT
+      AUDIT_THREAD_POOL_COUNT: 3
+    depends_on:
+      - mongo
 
 networks:
   asa-default-network:
