@@ -15,6 +15,6 @@
 
 ```
 {
-	"url": "URL_TO_SCRAPE_AND_AUDIT"
+	"urls": [ "URLS_TO_SCRAPE_AND_AUDIT" ]
 }
 ```

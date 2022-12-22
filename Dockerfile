@@ -19,4 +19,4 @@ RUN pip install -r requirements.txt
 
 EXPOSE 1338
 
-ENTRYPOINT [ "python", "report.py" ]
+ENTRYPOINT [ "python", "./src/report.py" ]

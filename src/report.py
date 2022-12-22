@@ -188,9 +188,6 @@ def worker_scrape_urls():
                     if add_to_audit_queue(full_url):
                         added_to_queue = added_to_queue + 1
 
-            # print(
-            #     f'Finished scraping {url}: {added_to_queue} added to audit queue')
-
         else:
 
             print(

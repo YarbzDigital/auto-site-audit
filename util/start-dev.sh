@@ -1,1 +1,1 @@
-MONGO_CONNECTION_STRING="mongodb://root:6iQ%267k5DRHA1HQz!@localhost:27017/?authMechanism=DEFAULT" AUDIT_THREAD_POOL_COUNT=3 python3 report.py
+MONGO_CONNECTION_STRING="mongodb://root:6iQ%267k5DRHA1HQz!@localhost:27017/?authMechanism=DEFAULT" AUDIT_THREAD_POOL_COUNT=3 python3 ./src/report.py
