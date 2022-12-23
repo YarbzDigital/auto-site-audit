@@ -4,10 +4,8 @@ import urllib.parse
 import requests
 import threading
 from bs4 import BeautifulSoup
-from TinyMongoClient import TinyMongoClient
 from UniqueQueue import UniqueQueue
 from flask import Flask, Response, request, json, make_response, jsonify
-from tinymongo import tinymongo as tm
 import json
 import time
 from config import Config
