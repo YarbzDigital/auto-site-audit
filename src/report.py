@@ -10,7 +10,7 @@ import json
 import time
 from config import Config
 from db import DbClient
-from helpers import strip_to_hostname
+from helpers import is_url_file, normalize_url, strip_to_hostname
 import uuid
 from multiprocessing import Pool, Process
 from colorama import init, Fore, Back, Style
@@ -45,8 +45,7 @@ def api_post_scrape_url():
     urls = request.json['urls']
 
     for url in urls:
-        if not add_to_scrape_queue(url):
-            print(f'Skipping posted url {url}: already in queue')
+        add_to_scrape_queue(url)
 
     return Response("", status=200)
 
@@ -87,27 +86,34 @@ def main():
 
 
 def add_to_audit_queue(url):
-    if q_audit.exists(url) or db_client.url_has_entry(url):
+    normalized_url = normalize_url(url)
+
+    if q_audit.exists(normalized_url) or db_client.url_has_entry(normalized_url):
         print(
-            f'{PRINT_SKIP}Skipping adding {url} to AUDIT queue: already exists in queue or DB')
+            f'{PRINT_SKIP}Skipping adding {normalized_url} to AUDIT queue: already exists in queue or DB')
 
         return False
 
-    q_audit.put(url)
-    print(f'{PRINT_QUEUE}Added {url} to AUDIT queue')
+    q_audit.put(normalized_url)
+    print(f'{PRINT_QUEUE}Added {normalized_url} to AUDIT queue')
 
     return True
 
 
 def add_to_scrape_queue(url):
-    if q_crawl.exists(url):
-        print(
-            f'{PRINT_SKIP}Skipping adding {url} to SCRAPE queue: already exists in queue')
+    normalized_url = normalize_url(url)
 
+    if q_crawl.exists(normalized_url):
+        print(
+            f'{PRINT_SKIP}Skipping adding {normalized_url} to SCRAPE queue: already exists in queue')
         return False
 
-    q_crawl.put(url)
-    print(f'{PRINT_QUEUE}Added {url} to SCRAPE queue')
+    if is_url_file(normalized_url):
+        print(f'{PRINT_SKIP}Skipping adding {normalized_url} to SCRAPE queue: url is file, not web page')
+        return False
+
+    q_crawl.put(normalized_url)
+    print(f'{PRINT_QUEUE}Added {normalized_url} to SCRAPE queue')
 
     return True
 
