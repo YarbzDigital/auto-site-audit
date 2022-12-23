@@ -77,7 +77,7 @@ def main():
 
     threading.Thread(target=worker_scrape_urls, daemon=True).start()
 
-    for i in range(3):
+    for i in range(config.AuditThreadPoolCount):
         worker_id = i + 1
         print(f'Starting worker_audit thread #{worker_id}')
         threading.Thread(target=worker_audit, daemon=True,
