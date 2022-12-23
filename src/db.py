@@ -56,3 +56,8 @@ class DbClient:
                 }
             }
         ], allowDiskUse=True)
+    
+    def get_saved_urls_count(self):
+        return self.db.get_collection('audits').count_documents({})
+
+    

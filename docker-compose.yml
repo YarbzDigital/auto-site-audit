@@ -12,8 +12,10 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: 6iQ&7k5DRHA1HQz!
     networks:
       - asa-default-network
-  
-  auto-site-audit:
+    volumes:
+      - asa_mongo:/data/db
+
+  app:
     build:
       context: .
       dockerfile: Dockerfile
@@ -24,10 +26,13 @@ services:
       - asa-default-network
     environment:
       MONGO_CONNECTION_STRING: mongodb://root:6iQ%267k5DRHA1HQz!@mongo:27017/?authMechanism=DEFAULT
-      AUDIT_THREAD_POOL_COUNT: 3
+      AUDIT_THREAD_POOL_COUNT: 1
     depends_on:
       - mongo
 
 networks:
   asa-default-network:
     driver: bridge
+
+volumes:
+  asa_mongo:

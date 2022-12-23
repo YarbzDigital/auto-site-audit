@@ -57,7 +57,8 @@ def api_post_scrape_url():
 def api_get_status():
     return Response(json.dumps({
         'queue_audit_item_count': q_audit.unfinished_tasks,
-        'queue_crawl_item_count': q_crawl.unfinished_tasks
+        'queue_crawl_item_count': q_crawl.unfinished_tasks,
+        'total_saved_urls': db_client.get_saved_urls_count()
     }), status=200, mimetype='application/json')
 
 @app.route('/api/hosts', methods=['GET'])
@@ -134,7 +135,7 @@ def worker_audit(worker_id):
 
             # Run lighthouse node command (must be installed globally on OS)
             proc = subprocess.run(
-                f'lighthouse {audit_url} --output=json --output-path="stdout" --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run" --only-categories=performance,seo --max-wait-for-load=60000 --quiet',
+                f'lighthouse \'{audit_url}\' --output=json --output-path="stdout" --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run" --only-categories=performance,seo --max-wait-for-load=60000 --quiet',
                 shell=True,
                 text=True,
                 stdout=subprocess.PIPE,
