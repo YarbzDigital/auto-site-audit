@@ -197,38 +197,42 @@ def worker_scrape_urls():
         if not url.startswith('http'):
             url = f'http://{url}'
 
-        resp = requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:108.0) Gecko/20100101 Firefox/108.0'
-        })
+        try:
+            resp = requests.get(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:108.0) Gecko/20100101 Firefox/108.0'
+            })
 
-        if (resp.ok):
+            if (resp.ok):
 
-            host = strip_to_hostname(resp.url)
+                host = strip_to_hostname(resp.url)
 
-            added_to_queue = 0
-            # Add homepage URL to audit queue
-            if add_to_audit_queue(resp.url):
-                added_to_queue = added_to_queue + 1
+                added_to_queue = 0
+                # Add homepage URL to audit queue
+                if add_to_audit_queue(resp.url):
+                    added_to_queue = added_to_queue + 1
 
-            soup = BeautifulSoup(resp.text, 'html.parser')
+                soup = BeautifulSoup(resp.text, 'html.parser')
 
-            for link in soup.find_all('a'):
-                href = link.get('href')
+                for link in soup.find_all('a'):
+                    href = link.get('href')
 
-                # Check the link is relative to this site
-                if href is not None and len(href) > 1 and href.startswith('/#') == False and (href.startswith('/') or strip_to_hostname(href) == host):
+                    # Check the link is relative to this site
+                    if href is not None and len(href) > 1 and href.startswith('/#') == False and (href.startswith('/') or strip_to_hostname(href) == host):
 
-                    full_url = urllib.parse.urljoin(resp.url, href)
+                        full_url = urllib.parse.urljoin(resp.url, href)
 
-                    if add_to_audit_queue(full_url):
-                        added_to_queue = added_to_queue + 1
+                        if add_to_audit_queue(full_url):
+                            added_to_queue = added_to_queue + 1
 
-        else:
+            else:
 
-            print(
-                f'{PRINT_SKIP}Abandoned scrape for {url}: GET request failed with status code {resp.status_code}')
+                print(
+                    f'{PRINT_SKIP}Failed scrape for {url}: GET request failed with status code {resp.status_code}')
 
-        q_crawl.task_done()
+            q_crawl.task_done()
+        except Exception as e:
+            msg = getattr(e, 'message', str(e))
+            print(f'{PRINT_ERROR}Failed scrape for {url}: CURL request failed: {msg}')
 
 
 # main()
