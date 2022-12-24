@@ -93,6 +93,10 @@ def add_to_audit_queue(url):
             f'{PRINT_SKIP}Skipping adding {normalized_url} to AUDIT queue: already exists in queue or DB')
 
         return False
+    
+    if is_url_file(normalized_url):
+        print(f'{PRINT_SKIP}Skipping adding {normalized_url} to AUDIT queue: url is file, not web page')
+        return False
 
     q_audit.put(normalized_url)
     print(f'{PRINT_QUEUE}Added {normalized_url} to AUDIT queue')
